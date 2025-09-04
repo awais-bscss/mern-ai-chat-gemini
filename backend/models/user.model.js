@@ -31,7 +31,6 @@ userSchema.methods.generateJWT = function () {
   const user = this;
   const token = jwt.sign(
     {
-      _id: user._id,
       email: user.email,
     },
     process.env.JWT_SECRET,
@@ -39,5 +38,5 @@ userSchema.methods.generateJWT = function () {
   );
   return token;
 };
-const User = mongoose.model("User", userSchema);
-export default User;
+const userModel = mongoose.model("User", userSchema);
+export default userModel;
