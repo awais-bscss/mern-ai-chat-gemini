@@ -43,7 +43,5 @@ export const loginUser = async (req, res) => {
 };
 
 export const profileUser = async (req, res) => {
-  // This is a placeholder implementation. In a real application, you would
-  // authenticate the user and fetch their profile from the database.
   res.status(200).json({ message: "User profile", user: req.user || null });
 };
