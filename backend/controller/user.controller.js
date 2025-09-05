@@ -1,6 +1,7 @@
 import userModel from "../models/user.model.js";
 import userService from "../services/user.service.js";
 import { validationResult } from "express-validator";
+import redisClient from "../services/redis.service.js";
 export const registerUser = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -44,4 +45,30 @@ export const loginUser = async (req, res) => {
 
 export const profileUser = async (req, res) => {
   res.status(200).json({ message: "User profile", user: req.user || null });
+};
+
+export const logoutUser = async (req, res) => {
+  try {
+    let token;
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    } else if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer ")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    }
+
+    if (!token) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized - No token provided" });
+    }
+    await redisClient.set(token, "logout", "EX", 60 * 60 * 24);
+    res.clearCookie("token");
+    res.status(200).json({ message: "User logged out successfully" });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error: error.message });
+  }
 };
