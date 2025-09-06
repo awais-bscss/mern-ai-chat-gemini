@@ -1,7 +1,31 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "../config/axios";
 
 const Login = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const navigate = useNavigate();
+  const submitHandler = (e) => {
+    e.preventDefault();
+    const userData = {
+      email: email,
+      password: password,
+    };
+
+    axios
+      .post("/users/login", userData)
+      .then((res) => {
+        console.log(res.data);
+        navigate("/");
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+
+    setEmail("");
+    setPassword("");
+  };
   return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-r from-blue-500 to-indigo-600">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
@@ -9,7 +33,7 @@ const Login = () => {
           Login to Your Account
         </h2>
 
-        <form className="space-y-6">
+        <form className="space-y-6" onSubmit={submitHandler}>
           <div>
             <label
               htmlFor="email"
@@ -18,6 +42,8 @@ const Login = () => {
               Email Address
             </label>
             <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               type="email"
               id="email"
               placeholder="Enter your email"
@@ -33,6 +59,8 @@ const Login = () => {
               Password
             </label>
             <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               type="password"
               id="password"
               placeholder="Enter your password"
@@ -54,7 +82,7 @@ const Login = () => {
             to="/register"
             className="text-indigo-600 font-medium hover:underline"
           >
-            Sign up
+            Register
           </Link>
         </p>
       </div>

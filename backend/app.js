@@ -7,6 +7,13 @@ import connectDB from "./db/db.js";
 connectDB();
 import userRoutes from "./routes/user.routes.js";
 import cookieParser from "cookie-parser";
+import cors from "cors";
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
 
 //middlewares
 app.use(morgan("dev"));

@@ -10,7 +10,9 @@ export const registerUser = async (req, res) => {
   const { email, password } = req.body;
   try {
     const newUser = await userService.createUser({ email, password });
+
     const token = newUser.generateJWT();
+    delete newUser._doc.password;
     res
       .status(201)
       .json({ message: "User registered successfully", token, user: newUser });
@@ -35,6 +37,7 @@ export const loginUser = async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     const token = user.generateJWT();
+    delete newUser._doc.password;
     res
       .status(200)
       .json({ message: "User logged in successfully", token, user });

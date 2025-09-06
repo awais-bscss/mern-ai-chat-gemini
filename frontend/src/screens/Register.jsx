@@ -1,7 +1,31 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "../config/axios";
 
 const Register = () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const navigate = useNavigate();
+  const submitHandler = (e) => {
+    e.preventDefault();
+    const userData = {
+      email: email,
+      password: password,
+    };
+
+    axios
+      .post("/users/register", userData)
+      .then((res) => {
+        console.log(res.data);
+        navigate("/");
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+
+    setEmail("");
+    setPassword("");
+  };
   return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-r from-green-400 via-emerald-500 to-green-700">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 transform transition-all hover:scale-[1.02] duration-300">
@@ -9,7 +33,7 @@ const Register = () => {
           Create Account
         </h2>
 
-        <form className="space-y-6">
+        <form className="space-y-6" onSubmit={submitHandler}>
           <div>
             <label
               htmlFor="email"
@@ -18,6 +42,8 @@ const Register = () => {
               Email Address
             </label>
             <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               type="email"
               id="email"
               placeholder="Enter your email"
@@ -33,6 +59,8 @@ const Register = () => {
               Password
             </label>
             <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               type="password"
               id="password"
               placeholder="Enter your password"
