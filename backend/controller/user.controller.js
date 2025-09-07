@@ -37,7 +37,7 @@ export const loginUser = async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     const token = user.generateJWT();
-    delete newUser._doc.password;
+    delete user._doc.password;
     res
       .status(200)
       .json({ message: "User logged in successfully", token, user });
