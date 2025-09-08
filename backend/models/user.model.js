@@ -31,6 +31,7 @@ userSchema.methods.generateJWT = function () {
   const user = this;
   const token = jwt.sign(
     {
+      _id: user._id.toString(),
       email: user.email,
     },
     process.env.JWT_SECRET,
