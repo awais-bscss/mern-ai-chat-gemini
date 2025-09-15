@@ -12,4 +12,14 @@ const createUser = async ({ email, password }) => {
 
   return newUser;
 };
-export default { createUser };
+
+const getAllUsersService = async ({ userId }) => {
+  const users = await userModel
+    .find({
+      _id: { $ne: userId },
+    })
+    .select("-password");
+  return users;
+};
+
+export default { createUser, getAllUsersService };

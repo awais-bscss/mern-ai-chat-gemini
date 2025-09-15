@@ -7,8 +7,8 @@ export const authUser = async (req, res, next) => {
     let token;
 
     // 1. Authorization header
-    if (req.headers.authorization?.startsWith("Bearer ")) {
-      token = req.headers.authorization.split(" ")[1];
+    if (req.headers.authorization?.startsWith("Bearer")) {
+      token = req.headers.authorization.replace("Bearer", "").trim();
     }
 
     // 2. Cookie fallback

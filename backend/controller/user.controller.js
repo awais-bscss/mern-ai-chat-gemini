@@ -75,3 +75,18 @@ export const logoutUser = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+export const getAllUsers = async (req, res) => {
+  try {
+    const loggedInUser = await userModel.findOne({
+      email: req.user.email,
+    });
+
+    const users = await userService.getAllUsersService({
+      userId: loggedInUser._id,
+    });
+    res.status(200).json({ message: "Users fetched successfully", users });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
