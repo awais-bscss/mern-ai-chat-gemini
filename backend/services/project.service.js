@@ -71,3 +71,20 @@ export const addUserToProject = async ({ users, projectId, userId }) => {
     throw error;
   }
 };
+
+export const fetchProjectById = async ({ projectId }) => {
+  try {
+    if (!projectId) {
+      throw new Error("Project not found");
+    }
+
+    if (!mongoose.isValidObjectId(projectId)) {
+      throw new Error("Invalid Project ID");
+    }
+    const project = await projectModel.findById(projectId).populate("users");
+
+    return project;
+  } catch (error) {
+    throw error;
+  }
+};
