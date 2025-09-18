@@ -1,12 +1,18 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { useLocation } from "react-router-dom";
 import { FaUserGroup } from "react-icons/fa6";
 import { FiSend } from "react-icons/fi";
 import { MdOutlineClose } from "react-icons/md";
 import { FaUser } from "react-icons/fa";
 import { IoMdPersonAdd } from "react-icons/io";
-import { useEffect } from "react";
 import axios from "../config/axios";
+import { UserContext } from "../context/user.context";
+import {
+  initializeSocket,
+  receiveMessage,
+  sendMessage,
+} from "../config/socket";
+
 const Project = () => {
   const location = useLocation();
   const { project } = location.state || {};
@@ -14,14 +20,23 @@ const Project = () => {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState([]);
-  const [Users, setUsers] = useState([]);
-  const [projectId, setProjectId] = useState(project);
+  const [users, setUsers] = useState([]);
+  const [projectData, setProjectData] = useState(project || null);
+  const [projectId, setProjectId] = useState(project?._id || "");
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
 
+  const { user } = useContext(UserContext);
+
+  // Project aur users fetch
   useEffect(() => {
+    if (!project?._id) return;
+
     axios
       .get(`/projects/get-project/${project._id}`)
       .then((response) => {
-        setProjectId(response.data.project);
+        setProjectData(response.data.project);
+        setProjectId(response.data.project._id); // ✅ sirf _id rakha
       })
       .catch((error) => {
         console.error(error);
@@ -36,7 +51,33 @@ const Project = () => {
       }
     };
     fetchUsers();
+  }, [project?._id]);
+
+  // Socket connection
+  useEffect(() => {
+    const socket = initializeSocket(project._id);
+
+    receiveMessage("event-message", (data) => {
+      console.log("📥 Received:", data);
+      setMessages((prev) => [...prev, data]);
+    });
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [project._id]);
+
+  // Send message
+  function send() {
+    if (message.trim() === "") return;
+    const newMsg = {
+      message,
+      projectId: project._id,
+    };
+    sendMessage("event-message", newMsg);
+    setMessages((prev) => [...prev, { ...newMsg, sender: user }]);
+    setMessage("");
+  }
 
   // toggle user select/unselect
   const toggleUserSelection = (_id) => {
@@ -47,11 +88,12 @@ const Project = () => {
     }
   };
 
+  // Add collaborator
   const handleAddCollaborator = async () => {
     try {
       const response = await axios.put("/projects/add-user", {
-        projectId: project._id, // projectId backend pe expect hai
-        users: selectedUsers, // backend "users" expect karta hai, na ke "userIds"
+        projectId,
+        users: selectedUsers,
       });
       console.log(response.data);
       setModalOpen(false);
@@ -61,6 +103,7 @@ const Project = () => {
   };
 
   if (!project) return <p>Project not found</p>;
+
   return (
     <main className="h-screen w-screen bg-red-300 flex">
       {/* Left Section */}
@@ -85,35 +128,42 @@ const Project = () => {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-4">
-            <div className="w-fit max-w-[80%]">
-              <div className="bg-white p-2 rounded-md text-sm">
-                <span className="block text-xs text-gray-500 mb-1">
-                  user1@email.com
-                </span>
-                Hello Lorem ipsum dolor sit amet consectetur adipisicing elit.
-                Quasi
-              </div>
-            </div>
-
-            <div className="w-fit ml-auto max-w-[80%]">
-              <div className="bg-blue-400 p-2 rounded-md text-sm text-white">
-                <span className="block text-xs text-gray-200 mb-1">
-                  you@email.com
-                </span>
-                Hi there!
-              </div>
-            </div>
+            {messages.map((msg, i) => {
+              const isOwn = msg.sender?._id === user?._id;
+              return (
+                <div
+                  key={i}
+                  className={`w-fit max-w-[80%] ${isOwn ? "ml-auto" : ""}`}
+                >
+                  <div
+                    className={`p-2 rounded-md text-sm ${
+                      isOwn ? "bg-blue-400 text-white" : "bg-white text-black"
+                    }`}
+                  >
+                    <span className="block text-xs text-gray-500 mb-1">
+                      {msg.sender?.email || "Unknown"}
+                    </span>
+                    {msg.message}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Input */}
         <div className="p-2 bg-gray-400 flex items-center gap-2">
           <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
             type="text"
             placeholder="Enter your message"
             className="flex-1 p-2 rounded-md outline-none"
           />
-          <button className="bg-blue-600 text-white p-2 rounded-md">
+          <button
+            className="bg-blue-600 text-white p-2 rounded-md"
+            onClick={send}
+          >
             <FiSend />
           </button>
         </div>
@@ -132,15 +182,15 @@ const Project = () => {
             <MdOutlineClose />
           </header>
           <div className="users flex flex-col p-4 gap-3">
-            {projectId?.users?.map((user, index) => (
+            {projectData?.users?.map((u, index) => (
               <div
-                key={user._id || user.email || index}
+                key={u._id || u.email || index}
                 className="flex items-center gap-3 p-2 bg-blue-700 rounded-lg cursor-pointer hover:bg-blue-900 transition"
               >
                 <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-blue-700">
                   <FaUser size={20} />
                 </div>
-                <p className="text-white text-sm font-medium">{user.email}</p>
+                <p className="text-white text-sm font-medium">{u.email}</p>
               </div>
             ))}
           </div>
@@ -169,36 +219,33 @@ const Project = () => {
 
             {/* Users List */}
             <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
-              {Users.map((user) => (
+              {users.map((u) => (
                 <div
-                  key={user._id}
-                  onClick={() => toggleUserSelection(user._id)}
+                  key={u._id}
+                  onClick={() => toggleUserSelection(u._id)}
                   className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition ${
-                    selectedUsers.includes(user._id)
+                    selectedUsers.includes(u._id)
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 hover:bg-gray-200"
                   }`}
                 >
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      selectedUsers.includes(user._id)
+                      selectedUsers.includes(u._id)
                         ? "bg-white text-blue-600"
                         : "bg-blue-600 text-white"
                     }`}
                   >
                     <FaUser size={18} />
                   </div>
-                  <p className="text-sm">{user.email}</p>
+                  <p className="text-sm">{u.email}</p>
                 </div>
               ))}
             </div>
 
             {/* Add Btn */}
             <button
-              onClick={() => {
-                handleAddCollaborator();
-                setModalOpen(false);
-              }}
+              onClick={handleAddCollaborator}
               className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
             >
               Add Collaborator
