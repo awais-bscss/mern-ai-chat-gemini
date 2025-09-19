@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { FaUserGroup } from "react-icons/fa6";
 import { FiSend } from "react-icons/fi";
@@ -28,6 +28,14 @@ const Project = () => {
 
   const { user } = useContext(UserContext);
 
+  // ✅ Scroll ref
+  const messagesEndRef = useRef(null);
+
+  // Scroll to bottom function
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   // Project aur users fetch
   useEffect(() => {
     if (!project?._id) return;
@@ -36,7 +44,7 @@ const Project = () => {
       .get(`/projects/get-project/${project._id}`)
       .then((response) => {
         setProjectData(response.data.project);
-        setProjectId(response.data.project._id); // ✅ sirf _id rakha
+        setProjectId(response.data.project._id);
       })
       .catch((error) => {
         console.error(error);
@@ -58,7 +66,7 @@ const Project = () => {
     const socket = initializeSocket(project._id);
 
     receiveMessage("event-message", (data) => {
-      console.log("📥 Received:", data);
+      console.log(" Received:", data);
       setMessages((prev) => [...prev, data]);
     });
 
@@ -67,19 +75,22 @@ const Project = () => {
     };
   }, [project._id]);
 
-  // Send message
+  // ✅ Har bar messages change hote hi scroll bottom
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
   function send() {
     if (message.trim() === "") return;
     const newMsg = {
       message,
       projectId: project._id,
+      sender: user._id,
     };
     sendMessage("event-message", newMsg);
-    setMessages((prev) => [...prev, { ...newMsg, sender: user }]);
     setMessage("");
   }
 
-  // toggle user select/unselect
   const toggleUserSelection = (_id) => {
     if (selectedUsers.includes(_id)) {
       setSelectedUsers(selectedUsers.filter((userId) => userId !== _id));
@@ -88,7 +99,6 @@ const Project = () => {
     }
   };
 
-  // Add collaborator
   const handleAddCollaborator = async () => {
     try {
       const response = await axios.put("/projects/add-user", {
@@ -126,7 +136,7 @@ const Project = () => {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           <div className="space-y-4">
             {messages.map((msg, i) => {
               const isOwn = msg.sender?._id === user?._id;
@@ -148,6 +158,8 @@ const Project = () => {
                 </div>
               );
             })}
+            {/* ✅ Invisible ref for scroll bottom */}
+            <div ref={messagesEndRef} />
           </div>
         </div>
 
@@ -204,20 +216,15 @@ const Project = () => {
       {modalOpen && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
           <div className="bg-white w-[500px] rounded-lg shadow-lg p-6 relative">
-            {/* Close Btn */}
             <button
               onClick={() => setModalOpen(false)}
               className="absolute top-3 right-3 text-gray-600 hover:text-black"
             >
               <MdOutlineClose size={24} />
             </button>
-
-            {/* Title */}
             <h2 className="text-xl font-bold mb-4 text-gray-800">
               Add Collaborators
             </h2>
-
-            {/* Users List */}
             <div className="flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
               {users.map((u) => (
                 <div
@@ -242,8 +249,6 @@ const Project = () => {
                 </div>
               ))}
             </div>
-
-            {/* Add Btn */}
             <button
               onClick={handleAddCollaborator}
               className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
