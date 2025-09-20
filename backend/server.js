@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import projectModel from "./models/project.model.js";
+import { generateResult } from "./services/gemini.service.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -33,7 +34,7 @@ io.use(async (socket, next) => {
       if (authHeader.startsWith("Bearer ")) {
         token = authHeader.split(" ")[1];
       } else {
-        token = authHeader; // agar sirf token bheja ho without Bearer
+        token = authHeader;
       }
     }
 
@@ -46,13 +47,11 @@ io.use(async (socket, next) => {
       return next(new Error("Invalid project ID"));
     }
 
-    // ✅ Project check
     const project = await projectModel.findById(projectId);
     if (!project) {
       return next(new Error("Project not found"));
     }
 
-    // ✅ Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     socket.user = decoded;
@@ -66,24 +65,58 @@ io.use(async (socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  console.log("Client connected:", socket.user?.email || socket.user?._id);
+  const roomId = socket.project._id.toString();
 
-  // ✅ Join project-specific room
-  socket.join(socket.project._id.toString());
+  console.log(" Client connected:", socket.user?.email || socket.user?._id);
 
-  // ✅ Listen for messages
-  socket.on("event-message", (data) => {
-    console.log(" Message received:", data);
+  socket.join(roomId);
 
-    // Broadcast to same project room
-    io.to(socket.project._id.toString()).emit("event-message", {
-      ...data,
-      sender: socket.user, // sender ka data bhej do
-    });
+  // Notify others
+  io.to(roomId).emit("user-joined", {
+    user: socket.user,
+    message: `${socket.user.email} joined the project`,
   });
 
+  //  Listen for messages
+  socket.on("event-message", async (data) => {
+    console.log("📥 Message received:", data);
+    const message = (data.message || "").trim();
+
+    //  Pehle user ka asli message sabko bhej do
+    io.to(roomId).emit("event-message", {
+      ...data,
+      sender: socket.user,
+    });
+
+    //  Agar @ai present hai to ek alag se AI Bot ka reply bhejo
+    if (message.includes("@ai")) {
+      const prompt = message.replace("@ai", "");
+
+      const reply = await generateResult(prompt);
+      io.to(roomId).emit("event-message", {
+        ...data,
+        sender: {
+          _id: "ai",
+          email: "AI Bot",
+        },
+        message: reply,
+      });
+    }
+  });
+
+  // ❌ Handle disconnect
   socket.on("disconnect", () => {
-    console.log("Client disconnected");
+    console.log(
+      "❌ Client disconnected:",
+      socket.user?.email || socket.user?._id
+    );
+
+    socket.leave(roomId);
+
+    io.to(roomId).emit("user-left", {
+      user: socket.user,
+      message: `${socket.user.email} left the project`,
+    });
   });
 });
 

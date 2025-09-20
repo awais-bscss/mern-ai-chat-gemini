@@ -7,6 +7,7 @@ import { FaUser } from "react-icons/fa";
 import { IoMdPersonAdd } from "react-icons/io";
 import axios from "../config/axios";
 import { UserContext } from "../context/user.context";
+import Markdown from "markdown-to-jsx";
 import {
   initializeSocket,
   receiveMessage,
@@ -31,17 +32,16 @@ const Project = () => {
   // ✅ Scroll ref
   const messagesEndRef = useRef(null);
 
-  // Scroll to bottom function
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   // Project aur users fetch
   useEffect(() => {
-    if (!project?._id) return;
+    if (!projectId) return;
 
     axios
-      .get(`/projects/get-project/${project._id}`)
+      .get(`/projects/get-project/${projectId}`)
       .then((response) => {
         setProjectData(response.data.project);
         setProjectId(response.data.project._id);
@@ -59,32 +59,34 @@ const Project = () => {
       }
     };
     fetchUsers();
-  }, [project?._id]);
+  }, [projectId]);
 
   // Socket connection
   useEffect(() => {
-    const socket = initializeSocket(project._id);
+    if (!projectId) return;
+
+    const socket = initializeSocket(projectId);
 
     receiveMessage("event-message", (data) => {
-      console.log(" Received:", data);
+      console.log("📥 Received:", data);
       setMessages((prev) => [...prev, data]);
     });
 
     return () => {
       if (socket) socket.disconnect();
     };
-  }, [project._id]);
+  }, [projectId]);
 
-  // ✅ Har bar messages change hote hi scroll bottom
+  // ✅ Auto scroll bottom
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
   function send() {
-    if (message.trim() === "") return;
+    if (message.trim() === "" || !projectId) return;
     const newMsg = {
       message,
-      projectId: project._id,
+      projectId,
       sender: user._id,
     };
     sendMessage("event-message", newMsg);
@@ -112,7 +114,7 @@ const Project = () => {
     }
   };
 
-  if (!project) return <p>Project not found</p>;
+  if (!projectId) return <p>Project not found</p>;
 
   return (
     <main className="h-screen w-screen bg-red-300 flex">
@@ -139,26 +141,69 @@ const Project = () => {
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           <div className="space-y-4">
             {messages.map((msg, i) => {
-              const isOwn = msg.sender?._id === user?._id;
+              const senderId = msg?.sender?._id || "";
+              const isOwn = senderId === user?._id;
+              const isAI = senderId === "ai";
+
               return (
                 <div
                   key={i}
                   className={`w-fit max-w-[80%] ${isOwn ? "ml-auto" : ""}`}
                 >
                   <div
-                    className={`p-2 rounded-md text-sm ${
-                      isOwn ? "bg-blue-400 text-white" : "bg-white text-black"
+                    className={`p-3 rounded-2xl text-sm shadow-md ${
+                      isOwn
+                        ? "bg-blue-500 text-white"
+                        : isAI
+                        ? "bg-gray-900 text-green-200 border border-gray-700"
+                        : "bg-white text-black"
                     }`}
+                    style={{
+                      overflowWrap: "break-word",
+                      wordBreak: "break-word",
+                      whiteSpace: "pre-wrap",
+                    }}
                   >
-                    <span className="block text-xs text-gray-500 mb-1">
-                      {msg.sender?.email || "Unknown"}
-                    </span>
-                    {msg.message}
+                    {/* Normal user sender info */}
+                    {!isAI && (
+                      <span className="block text-xs text-gray-700 mb-1">
+                        {msg?.sender?.email || "Unknown"}
+                      </span>
+                    )}
+
+                    {/* AI Message (Markdown rendered) */}
+                    {isAI ? (
+                      <Markdown
+                        options={{
+                          forceBlock: true,
+                          overrides: {
+                            a: {
+                              props: {
+                                target: "_blank",
+                                rel: "noopener noreferrer",
+                                className: "text-blue-400 underline",
+                              },
+                            },
+                            code: {
+                              props: {
+                                className:
+                                  "bg-gray-800 text-green-400 px-2 py-1 rounded text-xs font-mono block overflow-x-auto max-w-full",
+                              },
+                            },
+                          },
+                        }}
+                      >
+                        {msg?.message || ""}
+                      </Markdown>
+                    ) : (
+                      <span>{msg?.message || ""}</span>
+                    )}
                   </div>
                 </div>
               );
             })}
-            {/* ✅ Invisible ref for scroll bottom */}
+
+            {/* Auto-scroll ref */}
             <div ref={messagesEndRef} />
           </div>
         </div>
