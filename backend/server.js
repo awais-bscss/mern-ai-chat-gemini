@@ -31,11 +31,9 @@ io.use(async (socket, next) => {
 
     let token;
     if (authHeader) {
-      if (authHeader.startsWith("Bearer ")) {
-        token = authHeader.split(" ")[1];
-      } else {
-        token = authHeader;
-      }
+      token = authHeader.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : authHeader;
     }
 
     if (!token) {
@@ -43,24 +41,23 @@ io.use(async (socket, next) => {
     }
 
     const projectId = socket.handshake.query.projectId;
-    if (!mongoose.isValidObjectId(projectId)) {
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
       return next(new Error("Invalid project ID"));
     }
 
-    const project = await projectModel.findById(projectId);
+    const project = await projectModel.findById(projectId).lean();
     if (!project) {
       return next(new Error("Project not found"));
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     socket.user = decoded;
     socket.project = project;
 
     next();
   } catch (error) {
     console.error("Socket Auth Error:", error.message);
-    next(error);
+    next(new Error("Authentication failed"));
   }
 });
 
@@ -68,7 +65,6 @@ io.on("connection", (socket) => {
   const roomId = socket.project._id.toString();
 
   console.log(" Client connected:", socket.user?.email || socket.user?._id);
-
   socket.join(roomId);
 
   // Notify others
@@ -77,45 +73,62 @@ io.on("connection", (socket) => {
     message: `${socket.user.email} joined the project`,
   });
 
-  //  Listen for messages
+  // Listen for messages
   socket.on("event-message", async (data) => {
     console.log("📥 Message received:", data);
     const message = (data.message || "").trim();
 
-    //  Pehle user ka asli message sabko bhej do
-    io.to(roomId).emit("event-message", {
+    if (!message) return;
+
+    // Send user's message to all
+    const userMessage = {
       ...data,
       sender: socket.user,
-    });
+      timestamp: new Date(),
+    };
+    io.to(roomId).emit("event-message", userMessage);
 
-    //  Agar @ai present hai to ek alag se AI Bot ka reply bhejo
+    // Handle @ai command
     if (message.includes("@ai")) {
-      const prompt = message.replace("@ai", "");
-
-      const reply = await generateResult(prompt);
-      io.to(roomId).emit("event-message", {
-        ...data,
-        sender: {
-          _id: "ai",
-          email: "AI Bot",
-        },
-        message: reply,
-      });
+      const prompt = message.replace("@ai", "").trim();
+      if (prompt) {
+        try {
+          console.log("Sending prompt to AI:", prompt); // Debug prompt
+          const reply = await generateResult(prompt);
+          console.log("AI Reply:", reply); // Debug AI response
+          const aiMessage = {
+            ...data,
+            sender: { _id: "ai", email: "AI Bot" },
+            message: reply,
+            timestamp: new Date(),
+          };
+          io.to(roomId).emit("event-message", aiMessage);
+        } catch (error) {
+          console.error("AI Generation Error:", error.message);
+          io.to(roomId).emit("event-message", {
+            ...data,
+            sender: { _id: "ai", email: "AI Bot" },
+            message: {
+              error: "AI response generation failed: " + error.message,
+            },
+            timestamp: new Date(),
+          });
+        }
+      }
     }
   });
 
-  // ❌ Handle disconnect
+  // Handle disconnect
   socket.on("disconnect", () => {
     console.log(
       "❌ Client disconnected:",
       socket.user?.email || socket.user?._id
     );
-
     socket.leave(roomId);
-
     io.to(roomId).emit("user-left", {
       user: socket.user,
       message: `${socket.user.email} left the project`,
+      timestamp: new Date(),
     });
   });
 });

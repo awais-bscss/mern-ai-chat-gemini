@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { FaUserGroup } from "react-icons/fa6";
-import { FiSend } from "react-icons/fi";
+import { FaUserGroup, FaUser } from "react-icons/fa6";
+import { FiSend, FiX } from "react-icons/fi"; // FiX for close
 import { MdOutlineClose } from "react-icons/md";
-import { FaUser } from "react-icons/fa";
 import { IoMdPersonAdd } from "react-icons/io";
 import axios from "../config/axios";
 import { UserContext } from "../context/user.context";
@@ -26,20 +25,44 @@ const Project = () => {
   const [projectId, setProjectId] = useState(project?._id || "");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Right panel states
+  const [files, setFiles] = useState([]); // [{name: "App.js", content:"...", id: uniqueId}]
+  const [activeFile, setActiveFile] = useState(null);
 
   const { user } = useContext(UserContext);
-
-  // ✅ Scroll ref
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Project aur users fetch
+  // Update file content
+  const updateFileContent = (id, newContent) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, content: newContent } : f))
+    );
+  };
+
+  // Close active file
+  const closeActiveFile = () => {
+    setActiveFile(null);
+  };
+
+  // Permanent close file from list
+  const permanentCloseFile = (id) => {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    if (activeFile === id) {
+      setActiveFile(null);
+    }
+  };
+
+  // 🔹 Fetch project + users
   useEffect(() => {
     if (!projectId) return;
 
+    setIsLoading(true);
     axios
       .get(`/projects/get-project/${projectId}`)
       .then((response) => {
@@ -47,91 +70,153 @@ const Project = () => {
         setProjectId(response.data.project._id);
       })
       .catch((error) => {
-        console.error(error);
-      });
+        console.error("Error fetching project:", error);
+      })
+      .finally(() => setIsLoading(false));
 
-    const fetchUsers = async () => {
-      try {
-        const response = await axios.get("/users/all");
-        setUsers(response.data.users);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-    fetchUsers();
+    axios
+      .get("/users/all")
+      .then((res) => setUsers(res.data.users))
+      .catch((error) => console.error("Error fetching users:", error));
   }, [projectId]);
 
-  // Socket connection
+  // 🔹 Socket handling
   useEffect(() => {
     if (!projectId) return;
 
     const socket = initializeSocket(projectId);
 
-    receiveMessage("event-message", (data) => {
-      console.log("📥 Received:", data);
-      setMessages((prev) => [...prev, data]);
-    });
+    const handleMessage = (data) => {
+      if (data && data.message) {
+        const isAI =
+          typeof data.sender === "object" && data.sender._id === "ai";
+        let displayMessage = data.message;
+
+        console.log("Received AI Message:", data); // Debug log
+
+        // Separate files for right panel
+        if (isAI && data.message?.files) {
+          const incomingFiles = Array.isArray(data.message.files)
+            ? data.message.files
+            : [];
+          console.log("Extracted Files:", incomingFiles); // Debug files
+          if (incomingFiles.length > 0) {
+            setFiles((prevFiles) => {
+              const newFiles = incomingFiles.map((newFile, index) => {
+                const existingFile = prevFiles.find(
+                  (f) => f.name === newFile.name
+                );
+                const uniqueId = existingFile
+                  ? existingFile.id
+                  : Date.now() + index; // Unique ID
+                return {
+                  id: uniqueId,
+                  name: newFile.name,
+                  content: newFile.content,
+                };
+              });
+              // Replace or add, avoid duplicates by name
+              const updatedFiles = prevFiles.filter(
+                (f) => !incomingFiles.some((nf) => nf.name === f.name)
+              );
+              return [...updatedFiles, ...newFiles];
+            });
+            if (!activeFile) {
+              setActiveFile(incomingFiles[0].name); // Set first file as active
+            }
+          } else {
+            console.warn("No valid files array received:", data.message.files);
+          }
+          // Only show theory and example in chat
+          displayMessage = {
+            theory: data.message.theory,
+            example: data.message.example,
+            error: data.message.error,
+          };
+        } else if (isAI && !data.message?.files && data.message?.error) {
+          console.warn("AI error:", data.message.error);
+        } else if (isAI && !data.message?.files) {
+          console.warn("No files in AI response:", data.message);
+        }
+
+        setMessages((prev) => [...prev, { ...data, message: displayMessage }]);
+      }
+    };
+
+    socket.on("event-message", handleMessage);
 
     return () => {
-      if (socket) socket.disconnect();
+      socket.off("event-message", handleMessage);
+      socket?.disconnect();
     };
-  }, [projectId]);
+  }, [projectId, activeFile]);
 
-  // ✅ Auto scroll bottom
+  // 🔹 Auto scroll on new messages
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  // 🔹 Monitor files state change
+  useEffect(() => {
+    console.log("Updated Files State:", files); // Debug files state
+  }, [files]);
+
+  // 🔹 Send message
   function send() {
-    if (message.trim() === "" || !projectId) return;
+    if (!message.trim() || !projectId || isLoading) return;
+    setIsLoading(true);
     const newMsg = {
       message,
       projectId,
-      sender: user._id,
+      sender: user?._id,
     };
     sendMessage("event-message", newMsg);
     setMessage("");
+    setIsLoading(false);
   }
 
   const toggleUserSelection = (_id) => {
-    if (selectedUsers.includes(_id)) {
-      setSelectedUsers(selectedUsers.filter((userId) => userId !== _id));
-    } else {
-      setSelectedUsers([...selectedUsers, _id]);
-    }
+    setSelectedUsers((prev) =>
+      prev.includes(_id) ? prev.filter((id) => id !== _id) : [...prev, _id]
+    );
   };
 
   const handleAddCollaborator = async () => {
     try {
-      const response = await axios.put("/projects/add-user", {
+      setIsLoading(true);
+      await axios.put("/projects/add-user", {
         projectId,
         users: selectedUsers,
       });
-      console.log(response.data);
       setModalOpen(false);
     } catch (error) {
-      console.error(error);
+      console.error("Error adding collaborator:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (!projectId) return <p>Project not found</p>;
+  if (!projectId)
+    return <p className="text-center mt-10">⚠ Project not found</p>;
 
   return (
-    <main className="h-screen w-screen bg-red-300 flex">
-      {/* Left Section */}
-      <section className="h-screen w-[30%] bg-gray-300 flex flex-col relative overflow-hidden">
+    <main className="h-screen w-screen bg-gray-100 flex">
+      {/* Left Section (Chat + Users) */}
+      <section className="h-screen w-[30%] bg-gray-200 flex flex-col relative overflow-hidden">
         {/* Header */}
         <header className="flex w-full justify-between p-4 bg-gray-600 items-center">
           <button
             onClick={() => setModalOpen(true)}
-            className="bg-slate-400 rounded-full p-1 px-3 cursor-pointer flex items-center justify-center ml-2 text-sm text-white"
+            className="bg-blue-500 hover:bg-blue-600 rounded-full p-2 px-3 cursor-pointer flex items-center text-sm text-white transition"
+            disabled={isLoading}
           >
             <IoMdPersonAdd className="mr-2" />
             Add collaborator
           </button>
           <button
             onClick={() => setGroupPanelOpen(!groupPanelOpen)}
-            className="bg-slate-400 rounded-full p-2 cursor-pointer text-white"
+            className="bg-blue-500 hover:bg-blue-600 rounded-full p-2 cursor-pointer text-white transition"
+            disabled={isLoading}
           >
             <FaUserGroup />
           </button>
@@ -141,9 +226,32 @@ const Project = () => {
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           <div className="space-y-4">
             {messages.map((msg, i) => {
-              const senderId = msg?.sender?._id || "";
+              const senderId =
+                typeof msg?.sender === "object"
+                  ? msg?.sender?._id
+                  : msg?.sender;
+              const senderEmail =
+                typeof msg?.sender === "object"
+                  ? msg?.sender?.email
+                  : "Unknown";
               const isOwn = senderId === user?._id;
               const isAI = senderId === "ai";
+
+              let text = "";
+              if (isAI) {
+                if (msg.message.error) {
+                  text = `Error: ${msg.message.error}`;
+                } else {
+                  text = `${msg.message?.theory || ""}\n\n${
+                    msg.message?.example || ""
+                  }`;
+                }
+              } else {
+                text =
+                  typeof msg?.message === "string"
+                    ? msg?.message
+                    : msg?.message?.content || "";
+              }
 
               return (
                 <div
@@ -160,50 +268,30 @@ const Project = () => {
                     }`}
                     style={{
                       overflowWrap: "break-word",
-                      wordBreak: "break-word",
                       whiteSpace: "pre-wrap",
                     }}
                   >
-                    {/* Normal user sender info */}
                     {!isAI && (
-                      <span className="block text-xs text-gray-700 mb-1">
-                        {msg?.sender?.email || "Unknown"}
+                      <span className="block text-xs text-gray-900 mb-1">
+                        {senderEmail}
                       </span>
                     )}
-
-                    {/* AI Message (Markdown rendered) */}
                     {isAI ? (
                       <Markdown
                         options={{
                           forceBlock: true,
-                          overrides: {
-                            a: {
-                              props: {
-                                target: "_blank",
-                                rel: "noopener noreferrer",
-                                className: "text-blue-400 underline",
-                              },
-                            },
-                            code: {
-                              props: {
-                                className:
-                                  "bg-gray-800 text-green-400 px-2 py-1 rounded text-xs font-mono block overflow-x-auto max-w-full",
-                              },
-                            },
-                          },
+                          overrides: { p: { component: "div" } },
                         }}
                       >
-                        {msg?.message || ""}
+                        {text || "No content available"}
                       </Markdown>
                     ) : (
-                      <span>{msg?.message || ""}</span>
+                      <span>{text || "No content available"}</span>
                     )}
                   </div>
                 </div>
               );
             })}
-
-            {/* Auto-scroll ref */}
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -216,16 +304,18 @@ const Project = () => {
             type="text"
             placeholder="Enter your message"
             className="flex-1 p-2 rounded-md outline-none"
+            disabled={isLoading}
           />
           <button
-            className="bg-blue-600 text-white p-2 rounded-md"
+            className="bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
             onClick={send}
+            disabled={isLoading}
           >
             <FiSend />
           </button>
         </div>
 
-        {/* Slide Panel */}
+        {/* Slide Panel (Collaborators) */}
         <div
           className={`sidepanel h-full w-96 bg-gray-900 absolute top-0 left-0 transform transition-transform duration-300 ${
             groupPanelOpen ? "translate-x-0" : "-translate-x-full"
@@ -254,8 +344,73 @@ const Project = () => {
         </div>
       </section>
 
-      {/* Right Section */}
-      <section className="h-screen w-[70%] bg-gray-800"></section>
+      {/* Right Section (Files from AI) */}
+      <section className="h-screen w-[70%] bg-gray-800 p-4 flex">
+        {/* Side List (File List with Permanent Close) */}
+        <aside className="w-[20%] bg-gray-700 p-4 overflow-y-auto">
+          <h4 className="text-white text-lg mb-4">Files</h4>
+          <div className="flex flex-col gap-2">
+            {files.map((file) => (
+              <div key={file.id} className="flex items-center justify-between">
+                <button
+                  onClick={() => setActiveFile(file.id)} // Use id for activeFile
+                  className={`text-left w-full px-2 py-1 rounded ${
+                    activeFile === file.id
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-600 text-gray-200"
+                  }`}
+                >
+                  {file.name}
+                </button>
+                <button
+                  onClick={() => permanentCloseFile(file.id)}
+                  className="ml-2 text-red-500 hover:text-red-700"
+                >
+                  <FiX size={16} />
+                </button>
+              </div>
+            ))}
+            {files.length === 0 && <p className="text-gray-400">No files</p>}
+          </div>
+        </aside>
+
+        {/* Main Editor Area */}
+        <div className="flex-1 flex flex-col">
+          {/* Top Bar for Active File */}
+          {activeFile && (
+            <header className="flex items-center justify-between p-2 bg-gray-900 border-b border-gray-700">
+              <span className="text-white font-medium">
+                {files.find((f) => f.id === activeFile)?.name}
+              </span>
+              <button
+                onClick={closeActiveFile}
+                className="text-red-500 hover:text-red-700"
+              >
+                <FiX size={18} />
+              </button>
+            </header>
+          )}
+
+          {/* File Content - Editable */}
+          <div className="flex-1 bg-gray-900 p-4 overflow-y-auto">
+            {files.map(
+              (file) =>
+                activeFile === file.id && (
+                  <textarea
+                    key={file.id} // Use unique id for key
+                    value={file.content || "No content available"}
+                    onChange={(e) => updateFileContent(file.id, e.target.value)}
+                    className="w-full h-full bg-transparent text-green-400 font-mono text-sm outline-none resize-none whitespace-pre-wrap"
+                    placeholder="Edit file content here..."
+                  />
+                )
+            )}
+            {!activeFile && (
+              <p className="text-gray-400 text-center">Select a file to edit</p>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Modal */}
       {modalOpen && (
@@ -297,6 +452,7 @@ const Project = () => {
             <button
               onClick={handleAddCollaborator}
               className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+              disabled={isLoading}
             >
               Add Collaborator
             </button>
