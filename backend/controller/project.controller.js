@@ -1,87 +1,77 @@
-import {
-  createProject as createProjectService,
-  fetchAllProjects,
-  addUserToProject as addUserToProjectService,
-  fetchProjectById,
-} from "../services/project.service.js";
+// project.controller.js
+import mongoose from "mongoose";
+import projectModel from "../models/project.model.js";
 
-import { validationResult } from "express-validator";
-import userModel from "../models/user.model.js";
-
-export const createProject = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
+export const createProject = async ({ name, userId }) => {
+  if (!name) throw new Error("Name is required");
+  if (!userId || !mongoose.isValidObjectId(userId))
+    throw new Error("Invalid User ID");
   try {
-    const { name } = req.body;
-    const userId = req.user._id;
-
-    const project = await createProjectService({ name, userId });
-
-    res.status(201).json({ message: "Project created successfully", project });
+    const project = await projectModel.create({
+      name,
+      users: [userId],
+    });
+    return project;
   } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-};
-
-export const getAllProjects = async (req, res) => {
-  try {
-    if (!req.user || !req.user._id) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (error.code === 11000) {
+      throw new Error("Project name already exists");
     }
-
-    const userId = req.user._id;
-    const projects = await fetchAllProjects(userId);
-
-    res.status(200).json({
-      message: "Projects fetched successfully",
-      projects,
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
+    throw error;
   }
 };
 
-export const addUserToProject = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
+export const fetchAllProjects = async (userId) => {
+  if (!mongoose.isValidObjectId(userId)) throw new Error("Invalid User ID");
   try {
-    const { users, projectId } = req.body;
-    const loggedInUser = await userModel.findOne({
-      email: req.user.email,
-    });
-
-    const project = await addUserToProjectService({
-      projectId,
-      users,
-      userId: loggedInUser._id,
-    });
-
-    res.status(200).json({
-      message: "User added to project successfully",
-      project,
-    });
+    const projects = await projectModel.find({ users: userId });
+    return projects;
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    throw error;
   }
 };
 
-export const getProjectById = async (req, res) => {
-  try {
-    const { projectId } = req.params;
+export const addUserToProject = async ({ users, projectId, userId }) => {
+  if (!mongoose.isValidObjectId(projectId))
+    throw new Error("Invalid Project ID");
+  if (!Array.isArray(users) || users.length === 0)
+    throw new Error("Users are required and must be a non-empty array");
+  users.forEach((uid) => {
+    if (!mongoose.isValidObjectId(uid))
+      throw new Error(`Invalid user ID: ${uid}`);
+  });
+  if (!userId || !mongoose.isValidObjectId(userId))
+    throw new Error("Invalid User ID");
+  const project = await projectModel.findOne({ _id: projectId, users: userId });
+  if (!project) throw new Error("Project not found or user not authorized");
+  const updatedProject = await projectModel.findByIdAndUpdate(
+    projectId,
+    { $addToSet: { users: { $each: users } } },
+    { new: true }
+  );
+  return updatedProject;
+};
 
-    const project = await fetchProjectById({ projectId });
+export const fetchProjectById = async ({ projectId, userId }) => {
+  if (!projectId || !mongoose.isValidObjectId(projectId))
+    throw new Error("Invalid Project ID");
+  if (!userId || !mongoose.isValidObjectId(userId))
+    throw new Error("Invalid User ID");
+  const project = await projectModel
+    .findOne({ _id: projectId, users: userId })
+    .populate("users");
+  if (!project) throw new Error("Project not found or user not authorized");
+  return project;
+};
 
-    res.status(200).json({
-      message: "Project fetched successfully",
-      project,
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+export const updateFiles = async ({ projectId, files, userId }) => {
+  if (!mongoose.isValidObjectId(projectId))
+    throw new Error("Invalid Project ID");
+  if (!userId || !mongoose.isValidObjectId(userId))
+    throw new Error("Invalid User ID");
+  if (!Array.isArray(files)) throw new Error("Files must be an array");
+  const project = await projectModel.findOne({ _id: projectId, users: userId });
+  if (!project) throw new Error("Project not found or user not authorized");
+  project.currentFiles = files;
+  await project.save();
+  return project;
 };

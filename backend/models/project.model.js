@@ -1,3 +1,4 @@
+// project.model.js
 import mongoose from "mongoose";
 
 const projectSchema = new mongoose.Schema({
@@ -12,6 +13,20 @@ const projectSchema = new mongoose.Schema({
     {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+    },
+  ],
+  messages: [
+    {
+      sender: mongoose.Schema.Types.Mixed,
+      message: mongoose.Schema.Types.Mixed,
+      timestamp: { type: Date, default: Date.now },
+    },
+  ],
+  currentFiles: [
+    {
+      name: String,
+      content: String,
+      language: String,
     },
   ],
 });

@@ -1,3 +1,4 @@
+// server.js
 import http from "http";
 import app from "./app.js";
 import { Server } from "socket.io";
@@ -10,6 +11,7 @@ dotenv.config();
 
 const PORT = process.env.PORT || 5000;
 
+// Connect to MongoDB
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -18,9 +20,22 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  pingTimeout: 20000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e6,
 });
 
-// ✅ Authentication middleware
+const saveMessage = async (projectId, msg) => {
+  const { sender, message: msgContent, timestamp } = msg;
+  // Handle string vs object message
+  const message =
+    typeof msgContent === "string" ? { content: msgContent } : msgContent;
+  await projectModel.findByIdAndUpdate(projectId, {
+    $push: { messages: { sender, message, timestamp } },
+  });
+};
+
+// Authentication middleware (unchanged)
 io.use(async (socket, next) => {
   try {
     const authHeader =
@@ -64,38 +79,34 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   const roomId = socket.project._id.toString();
 
-  console.log(" Client connected:", socket.user?.email || socket.user?._id);
   socket.join(roomId);
 
-  // Notify others
   io.to(roomId).emit("user-joined", {
     user: socket.user,
     message: `${socket.user.email} joined the project`,
   });
 
-  // Listen for messages
   socket.on("event-message", async (data) => {
     console.log("📥 Message received:", data);
     const message = (data.message || "").trim();
 
     if (!message) return;
 
-    // Send user's message to all
     const userMessage = {
       ...data,
       sender: socket.user,
       timestamp: new Date(),
     };
     io.to(roomId).emit("event-message", userMessage);
+    await saveMessage(roomId, userMessage);
 
-    // Handle @ai command
     if (message.includes("@ai")) {
       const prompt = message.replace("@ai", "").trim();
       if (prompt) {
         try {
-          console.log("Sending prompt to AI:", prompt); // Debug prompt
+          console.log("Sending prompt to AI:", prompt);
           const reply = await generateResult(prompt);
-          console.log("AI Reply:", reply); // Debug AI response
+          console.log("AI Reply:", reply);
           const aiMessage = {
             ...data,
             sender: { _id: "ai", email: "AI Bot" },
@@ -103,27 +114,25 @@ io.on("connection", (socket) => {
             timestamp: new Date(),
           };
           io.to(roomId).emit("event-message", aiMessage);
+          await saveMessage(roomId, aiMessage);
         } catch (error) {
           console.error("AI Generation Error:", error.message);
-          io.to(roomId).emit("event-message", {
+          const errorMessage = {
             ...data,
             sender: { _id: "ai", email: "AI Bot" },
             message: {
               error: "AI response generation failed: " + error.message,
             },
             timestamp: new Date(),
-          });
+          };
+          io.to(roomId).emit("event-message", errorMessage);
+          await saveMessage(roomId, errorMessage);
         }
       }
     }
   });
 
-  // Handle disconnect
   socket.on("disconnect", () => {
-    console.log(
-      "❌ Client disconnected:",
-      socket.user?.email || socket.user?._id
-    );
     socket.leave(roomId);
     io.to(roomId).emit("user-left", {
       user: socket.user,
@@ -134,5 +143,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(` Server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
